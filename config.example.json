@@ -1,0 +1,18 @@
+{
+  "base_url": "https://blackboard.example.edu",
+  "courses_url": "",
+  "download_dir": "downloads",
+  "course_selection_mode": "selected",
+  "selected_course_ids": [],
+  "include_courses": [],
+  "exclude_courses": [],
+  "sync_headed": false,
+  "save_page_text": true,
+  "request_delay_seconds": 0.7,
+  "timeout_seconds": 30,
+  "retries": 3,
+  "max_file_mb": 1024,
+  "schedule_enabled": false,
+  "schedule_every_hours": 6,
+  "allowed_file_hosts": []
+}

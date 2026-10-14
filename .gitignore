@@ -1,0 +1,12 @@
+.venv/
+.state/
+downloads/
+reports/
+__pycache__/
+*.pyc
+config.local.json
+config.json
+*.tmp
+*VALIDATION.md
+dist/
+.github/workflows/tests.yml
