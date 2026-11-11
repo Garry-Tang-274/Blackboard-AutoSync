@@ -13,7 +13,7 @@ import bb_sync as bb
 
 EDITABLE = {'base_url', 'courses_url', 'download_dir', 'course_selection_mode', 'selected_course_ids',
             'include_courses', 'exclude_courses', 'request_delay_seconds', 'timeout_seconds', 'retries',
-            'max_file_mb', 'save_page_text', 'sync_headed', 'schedule_enabled', 'schedule_every_hours',
+            'max_file_mb', 'save_page_text', 'sync_headed', 'auto_sso_login', 'schedule_enabled', 'schedule_every_hours',
             'allowed_file_hosts'}
 
 def sha(path: Path):

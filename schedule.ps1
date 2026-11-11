@@ -10,6 +10,23 @@ try { $rootHash = [System.BitConverter]::ToString($sha.ComputeHash([System.Text.
 finally { $sha.Dispose() }
 $taskName = 'Blackboard-AutoSync-' + $rootHash
 $existing = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+$dailyTaskName = 'Blackboard-Daily-2000-CatchUp'
+$dailyTask = Get-ScheduledTask -TaskName $dailyTaskName -ErrorAction SilentlyContinue
+if ($dailyTask -and $Action -in 'apply','status','disable','enable','remove') {
+    if ($Action -eq 'apply') {
+        $dailyConfig = Get-Content -LiteralPath (Join-Path $taskRoot 'config.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($existing) { Disable-ScheduledTask -TaskName $taskName | Out-Null }
+        if ($dailyConfig.schedule_enabled) { Enable-ScheduledTask -TaskName $dailyTaskName | Out-Null }
+        else { Disable-ScheduledTask -TaskName $dailyTaskName | Out-Null }
+        Write-Host 'Daily 20:00 and logon catch-up schedule preference applied.'
+    } elseif ($Action -eq 'status') {
+        $dailyTask | Select-Object TaskName,State
+        Get-ScheduledTaskInfo -TaskName $dailyTaskName | Select-Object LastRunTime,LastTaskResult,NextRunTime
+    } elseif ($Action -eq 'disable') { Disable-ScheduledTask -TaskName $dailyTaskName | Out-Null }
+    elseif ($Action -eq 'enable') { Enable-ScheduledTask -TaskName $dailyTaskName | Out-Null }
+    elseif ($Action -eq 'remove') { Unregister-ScheduledTask -TaskName $dailyTaskName -Confirm:$false }
+    exit 0
+}
 if ($Action -eq 'apply') {
     $config = Get-Content -LiteralPath (Join-Path $taskRoot 'config.json') -Raw -Encoding UTF8 | ConvertFrom-Json
     $scheduleEnabled = $true

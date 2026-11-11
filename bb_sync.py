@@ -31,6 +31,7 @@ FILE_EXTENSIONS = set("pdf doc docx ppt pptx xls xlsx csv tsv txt r rmd py ipynb
 SECRET_KEYS = re.compile(r"token|ticket|signature|credential|password|secret|session|jwt|auth|saml|assertion|x-amz|x-goog|^code$|^state$", re.I)
 RESERVED = re.compile(r"^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)", re.I)
 AUTH_PATH = re.compile(r"/(?:login(?:[./]|$)|webapps/login(?:[./]|$)|cas/login|saml|adfs|oauth2?/authorize)", re.I)
+SSO_ENTRY_PATH = '/webapps/bb-zjdxsso-bblearn/index.jsp'
 COURSE_PATH = re.compile(r"/ultra/courses/([^/?#]+)")
 NAV_PATHS = {
     "/webapps/blackboard/content/listcontent.jsp",
@@ -166,6 +167,7 @@ class Config:
     save_page_text: bool = True
     allow_local_http: bool = False
     sync_headed: bool = False
+    auto_sso_login: bool = True
     schedule_enabled: bool = True
     schedule_every_hours: int = 6
 
@@ -197,7 +199,7 @@ class Config:
             raise ValueError('外部文件域名只填写主机名，不包含协议、端口、路径或账号')
         if not isinstance(cfg.schedule_every_hours, int) or isinstance(cfg.schedule_every_hours, bool) or not 1 <= cfg.schedule_every_hours <= 24:
             raise ValueError("自动同步间隔必须为 1–24 小时的整数")
-        for name in ("save_page_text", "sync_headed", "schedule_enabled", "allow_local_http"):
+        for name in ("save_page_text", "sync_headed", "auto_sso_login", "schedule_enabled", "allow_local_http"):
             if not isinstance(getattr(cfg, name), bool):
                 raise ValueError(name + " 必须为布尔值")
         if not isinstance(cfg.download_dir, str) or not cfg.download_dir.strip():
@@ -371,11 +373,52 @@ SNAPSHOT_JS = r"""() => {
 }"""
 
 
+def is_sso_entry(url: str, cfg: Config) -> bool:
+    target = urlsplit(url)
+    return (cfg.same_origin(url) and not target.username and not target.password
+            and target.path.lower() == SSO_ENTRY_PATH and not target.query and not target.fragment)
+
+
+def auto_sso_login(page, cfg: Config) -> bool:
+    """Click the school's observed INTL entry once; reuse SSO, never enter credentials."""
+    if not cfg.auto_sso_login or not cfg.same_origin(page.url):
+        return False
+    challenge = 'input[type=password]:visible,input[autocomplete=one-time-code]:visible,input[name=captcha]:visible'
+    if page.locator(challenge).count():
+        return False
+    candidates = []
+    for anchor in page.locator('a[href]').all():
+        href = urljoin(page.url, anchor.get_attribute('href') or '')
+        if is_sso_entry(href, cfg) and anchor.is_visible():
+            candidates.append(anchor)
+    if len(candidates) != 1:
+        return False
+    print('正在自动进入学校 INTL 登录，复用已有学校会话……', flush=True)
+    try:
+        candidates[0].click(timeout=cfg.timeout_seconds * 1000)
+        deadline = time.monotonic() + cfg.timeout_seconds
+        while time.monotonic() < deadline:
+            if page.locator(challenge).count():
+                return False
+            if cfg.same_origin(page.url) and not AUTH_PATH.search(urlsplit(page.url).path):
+                record = page.evaluate(SNAPSHOT_JS)
+                has_course = any(is_course_entry(urljoin(page.url, x['url'] or '')) for x in record['links'])
+                if not record['password'] and (record['logged'] or has_course):
+                    print('学校会话自动登录成功，无需手动点击。', flush=True)
+                    return True
+            page.wait_for_timeout(250)
+    except Exception as exc:
+        check_browser_error(exc)
+        raise PartialRun('学校自动登录跳转失败：' + error_label(exc)) from None
+    return False
+
+
 class BrowserReader:
     def __init__(self, context, cfg: Config, warn):
         self.context, self.cfg, self.warn = context, cfg, warn
         self.page = context.new_page()
         self.page.set_default_timeout(cfg.timeout_seconds * 1000)
+        self._sso_attempted = False
 
     def goto(self, url: str) -> None:
         for attempt in range(self.cfg.retries):
@@ -394,6 +437,12 @@ class BrowserReader:
                 self.check_auth()
                 return
             except AuthRequired:
+                if not self._sso_attempted:
+                    self._sso_attempted = True
+                    if auto_sso_login(self.page, self.cfg):
+                        # Resume the original course/folder, not the SSO landing page.
+                        self.goto(url)
+                        return
                 raise
             except PartialRun:
                 raise
@@ -428,6 +477,7 @@ class BrowserReader:
             if not record["logged"]:
                 sign_in = re.compile(r"^(?:log\s*in|sign\s*in|统一身份认证|国际校区.*登录|INTL.*登录|登录)", re.I)
                 if any(AUTH_PATH.search(urlsplit(item["url"] or "").path) or sign_in.search(item["text"])
+                       or is_sso_entry(urljoin(record['url'], item['url'] or ''), self.cfg)
                        for item in record["links"]):
                     raise AuthRequired("页面显示学校登录入口，需要重新登录 Blackboard")
 
@@ -1191,6 +1241,7 @@ def login(context, cfg: Config, root: Path, sync_after: bool) -> int:
     print("请在打开的专用浏览器完成学校登录和验证。程序只保存浏览器会话，不读取密码。", flush=True)
     try:
         page.goto(cfg.base_url, wait_until="domcontentloaded", timeout=cfg.timeout_seconds * 1000)
+        auto_sso_login(page, cfg)
     except Exception as exc:
         print("登录入口暂时无法访问：" + error_label(exc), flush=True)
     deadline = time.monotonic() + cfg.login_timeout_seconds

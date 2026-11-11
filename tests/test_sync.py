@@ -193,6 +193,21 @@ def handler_class(state):
             state.requests.append(self.path)
             parsed = urlsplit(self.path)
             path, q = parsed.path, parse_qs(parsed.query)
+            if state.mode in {'auto_sso', 'auto_sso_password', 'auto_sso_loop', 'auto_sso_course'}:
+                if path == '/webapps/bb-zjdxsso-BBLEARN/index.jsp':
+                    if state.mode == 'auto_sso_password':
+                        return self.respond('<form method="post"><input type="password"><button>Login</button></form>')
+                    headers = {'Location': '/'}
+                    if state.mode != 'auto_sso_loop':
+                        headers['Set-Cookie'] = 'BBSESSION=fixture-valid; Path=/'
+                    return self.respond('', 302, headers)
+                needs_login = 'BBSESSION=fixture-valid' not in self.headers.get('Cookie', '')
+                if state.mode == 'auto_sso_course':
+                    needs_login = needs_login and path.endswith('/launcher')
+                if needs_login:
+                    # The real school's two anchors share an ID and have image-only labels.
+                    return self.respond('<a id="intlid-login-link" href="/webapps/bb-zjdxsso-BBLEARN/index.jsp"><img alt="" width="40" height="40"></a>'
+                                        '<a id="intlid-login-link" href="https://unrelated.example.org/cas/login">ZJU</a>')
             if state.mode == "sso_login":
                 return self.respond('<html><body><h1>Welcome to Blackboard</h1><a href="/webapps/auth/login.jsp">Sign in with INTL account</a></body></html>')
             if state.mode == "cookie_auth" and "BBSESSION=fixture-valid" not in self.headers.get("Cookie", ""):
@@ -495,6 +510,46 @@ class IntegrationTests(unittest.TestCase):
         report = self.run_sync()
         self.assertEqual(report["status"], "auth_required")
         self.assertEqual(report["counts"]["pages"], 0)
+
+    def test_image_only_sso_entry_automatically_resumes_sync(self):
+        self.state.mode = 'auto_sso'
+        report = self.run_sync()
+        self.assertEqual(report['status'], 'synced', report['issues'])
+        self.assertEqual(report['counts']['downloaded'], 2)
+        self.assertEqual(self.state.requests.count('/webapps/bb-zjdxsso-BBLEARN/index.jsp'), 1)
+        self.assertFalse(any(x.startswith('POST') for x in self.state.requests))
+
+    def test_sso_returns_to_the_original_course(self):
+        self.state.mode = 'auto_sso_course'
+        report = self.run_sync()
+        self.assertEqual(report['status'], 'synced', report['issues'])
+        self.assertEqual(report['counts']['downloaded'], 2)
+
+    def test_sso_password_challenge_stops_without_submitting(self):
+        self.state.mode = 'auto_sso_password'
+        report = self.run_sync()
+        self.assertEqual(report['status'], 'auth_required', report['issues'])
+        self.assertFalse(any(x.startswith('POST') for x in self.state.requests))
+        self.assertEqual(self.state.requests.count('/webapps/bb-zjdxsso-BBLEARN/index.jsp'), 1)
+
+    def test_sso_loop_is_bounded_and_not_retried(self):
+        self.state.mode = 'auto_sso_loop'
+        self.cfg.timeout_seconds = 1
+        report = self.run_sync()
+        self.assertEqual(report['status'], 'auth_required', report['issues'])
+        self.assertEqual(self.state.requests.count('/webapps/bb-zjdxsso-BBLEARN/index.jsp'), 1)
+
+    def test_automatic_sso_can_be_disabled(self):
+        self.state.mode = 'auto_sso'
+        self.cfg.auto_sso_login = False
+        report = self.run_sync()
+        self.assertEqual(report['status'], 'auth_required')
+        self.assertNotIn('/webapps/bb-zjdxsso-BBLEARN/index.jsp', self.state.requests)
+
+    def test_sso_entry_rejects_foreign_hosts_and_callback_parameters(self):
+        self.assertTrue(bb.is_sso_entry(self.base + '/webapps/bb-zjdxsso-BBLEARN/index.jsp', self.cfg))
+        self.assertFalse(bb.is_sso_entry('https://other.example.org/webapps/bb-zjdxsso-BBLEARN/index.jsp', self.cfg))
+        self.assertFalse(bb.is_sso_entry(self.base + '/webapps/bb-zjdxsso-BBLEARN/index.jsp?code=secret', self.cfg))
 
     def test_cached_selected_course_entries_are_revalidated(self):
         self.cfg.course_selection_mode = "selected"

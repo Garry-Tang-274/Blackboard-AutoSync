@@ -20,10 +20,12 @@ class SettingsTests(unittest.TestCase):
         archive.close()
         return self.root / 'old'
     def test_preferences_preserve_other_keys_and_backup(self):
-        cfg, _ = save_settings(self.path, dict(schedule_enabled=False, schedule_every_hours=12, max_file_mb=200))
+        cfg, _ = save_settings(self.path, dict(schedule_enabled=False, schedule_every_hours=12, max_file_mb=200, auto_sso_login=False))
         self.assertFalse(cfg.schedule_enabled)
         self.assertEqual(cfg.schedule_every_hours, 12)
         self.assertEqual(cfg.retries, 3)
+        self.assertFalse(cfg.auto_sso_login)
+        self.assertFalse(bb.Config.load(self.path).auto_sso_login)
         self.assertEqual(len(list((self.root / '.state/config-history').glob('*.json'))), 1)
     def test_invalid_schedule_does_not_change_configuration(self):
         original = self.path.read_bytes()

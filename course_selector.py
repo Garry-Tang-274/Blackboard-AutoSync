@@ -144,7 +144,8 @@ class CourseSelector:
         field(general, 5, 'schedule_every_hours', '同步间隔（1–24 小时）', self.cfg.schedule_every_hours)
         toggle(general, 6, 'sync_headed', '显示专用浏览器（学校不兼容后台模式时勾选）', self.cfg.sync_headed)
         toggle(general, 7, 'save_page_text', '同时保存网页可见文字到 _pages 文件夹', self.cfg.save_page_text)
-        ttk.Label(general, text='关闭自动同步会停用本项目的计划任务，仍可手动同步。\n首次登录请使用课程页的登录按钮，密码只在学校页面输入。', wraplength=720, foreground='#61718a').grid(row=8, column=0, columnspan=2, sticky='w', pady=14)
+        toggle(general, 8, 'auto_sso_login', '自动进入学校 INTL 登录，复用已有学校会话', self.cfg.auto_sso_login)
+        ttk.Label(general, text='关闭自动同步会停用本项目的计划任务，仍可手动同步。\n首次登录或学校要求重新验证时，密码只在学校页面输入。', wraplength=720, foreground='#61718a').grid(row=9, column=0, columnspan=2, sticky='w', pady=14)
         ttk.Label(advanced, text='学校入口与下载选项', font=('Microsoft YaHei UI', 17, 'bold')).grid(row=0, column=0, columnspan=2, sticky='w', pady=(0, 12))
         for row, name, label in [(1, 'base_url', 'Blackboard 根网址（HTTPS）'), (2, 'courses_url', '课程列表网址（可留空）'), (3, 'request_delay_seconds', '请求间隔（秒）'), (4, 'timeout_seconds', '网络超时（秒）'), (5, 'retries', '网络重试次数'), (6, 'max_file_mb', '单文件大小上限（MB）')]:
             field(advanced, row, name, label, getattr(self.cfg, name))
